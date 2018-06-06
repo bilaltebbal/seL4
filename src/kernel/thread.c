@@ -330,16 +330,29 @@ schedule(void)
 void
 chooseThread(void)
 {
-        tcb_t *thread = NULL;
-        word_t prio;
-        word_t dom;
+    
+    tcb_t *thread = NULL;
+    word_t prio;
+    word_t dom;
 
+    if (CONFIG_NUM_DOMAINS > 1) {
+        dom = ksCurDomain;
+    } else {
+        dom = 0;
+    }
 
-        if (CONFIG_NUM_DOMAINS > 1) {
-                dom = ksCurDomain;
-        } else {
-                dom = 0;
-        }
+#ifndef CONFIG_ROUND_ROBIN_SCHEDULING /* This is seL4 default and necessary for seL4test */
+    if (likely(NODE_STATE(ksReadyQueuesL1Bitmap[dom]))) {
+        prio = getHighestPrio(dom);
+        thread = NODE_STATE(ksReadyQueues)[ready_queues_index(dom, prio)].head;
+        assert(thread);
+        assert(isRunnable(thread));
+        switchToThread(thread);
+    } else {
+        switchToIdleThread();
+    }
+
+#else /* This lets threads of lower priority run occasionally */
         //
         //Heads up! NODE_STATE() is an over-glorified super-macro created by someone evil!
         //
@@ -350,7 +363,7 @@ chooseThread(void)
         int i;
 #ifdef ENABLE_SMP_SUPPORT
         int currCPU = getCurrentCPUIndex();
-#endif
+#endif /* ENABLE_SMP_SUPPORT */
 
         //printf("Finding thread to run on core %d\n", currCPU);
         //loop through priorities looking for something to do!
@@ -368,7 +381,7 @@ chooseThread(void)
                 if(thread != NULL && thread->tcbAffinity == currCPU){
 #else
                 if(thread != NULL){
-#endif
+#endif /* ENABLE_SMP_SUPPORT */
                         if(lowest_thread == NULL){
                                 lowest_thread = thread;
                                 lowest_counter = queue.rr_counter;
@@ -398,6 +411,7 @@ chooseThread(void)
                 switchToIdleThread();
                 //printf("Idled!\n");
         }
+#endif /* CONFIG_PRIORITY_SCHEDULING || CONFIG_ROUND_ROBIN_SCHEDULING */
 }
 
 void
@@ -532,6 +546,7 @@ timerTick(void)
         next = next->tcbSleepNext;
     }
 
+#ifdef CONFIG_PREEMPTION_ENABLED
     if (likely(thread_state_get_tsType(NODE_STATE(ksCurThread)->tcbState) == ThreadState_Running)) {
         if (NODE_STATE(ksCurThread)->tcbTimeSlice > 1) {
             NODE_STATE(ksCurThread)->tcbTimeSlice--;
@@ -548,7 +563,7 @@ timerTick(void)
             rescheduleRequired();
         }
     }
-         
+#endif /* CONFIG_PREEMPTION_ENABLED */  
 }
 
 

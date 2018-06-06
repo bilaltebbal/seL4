@@ -341,6 +341,31 @@ menu "seL4 System Parameters"
         default 5
         help
             Number of timer ticks until a thread is preempted.
+    
+    config PREEMPTION_ENABLED
+        bool "Preemption enabled"
+        default y
+        help
+            Enable pre-emption on on threads
+    
+    choice
+        prompt "Scheduling Algorithm"
+        default PRIORITY_SCHEDULING
+        help
+            Change how threads are scheduled
+        
+        config ROUND_ROBIN_SCHEDULING
+            bool "Round Robin Scheduling"
+            help
+                Threads will be scheduled proportionally based on their 
+                priority
+        
+        config PRIORITY_SCHEDULING
+            bool "Priority Scheduling" 
+            help
+                Threads of lower priority will not be scheduled until 
+                higher priority threads are blocked/ complete
+    endchoice
 
     config RETYPE_FAN_OUT_LIMIT
         int "Retype fan out limit"
