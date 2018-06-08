@@ -308,13 +308,10 @@ BOOT_CODE static void do_nothing(void){
 BOOT_CODE static bool_t
 try_init_kernel_secondary_core(void)
 {
-   int my_stack_is_here;
+    int my_stack_is_here UNUSED;
+    
     /* need to first wait until some kernel init has been done */
-    while (node_boot_lock != getCurrentCPUIndex()){
-        do_nothing();
-        cleanInvalidateL1Caches();
-        plat_cleanInvalidateCache();
-    }
+    while(!node_boot_lock);
 
     /* Perform cpu init */
     init_cpu();
@@ -330,7 +327,6 @@ try_init_kernel_secondary_core(void)
     __atomic_signal_fence(__ATOMIC_ACQ_REL);
 
     init_core_state(SchedulerAction_ResumeCurrentThread);
-    my_stack_is_here = 0;
     printf("Core %d initialized @ %p from %p\n", (int)getCurrentCPUIndex(), (void *)&my_stack_is_here, (void *)kernel_stack_alloc);
 
     return true;
@@ -339,7 +335,6 @@ try_init_kernel_secondary_core(void)
 BOOT_CODE static void
 release_secondary_cpus(void)
 {
-    printf("Releasing secondary CPUs\n");
 
     /* release the cpus one at a time */
     node_boot_lock = 1;
@@ -348,7 +343,7 @@ release_secondary_cpus(void)
 
     /* Wait until all the secondary cores are done initialising */
     while (ksNumCPUs != CONFIG_MAX_NUM_NODES){
-	do_nothing();
+	    do_nothing();
     	cleanInvalidateL1Caches();
     	plat_cleanInvalidateCache();
     }

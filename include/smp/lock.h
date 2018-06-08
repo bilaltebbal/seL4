@@ -66,38 +66,6 @@ clh_is_ipi_pending(word_t cpu)
 }
 
 
-#define LD_EX               "ldxr "
-#define ST_EX               "stxr "
-#define OP_WIDTH            "w"
-
-
-static inline bool_t
-try_arch_atomic_exchange(void* ptr, void *new_val, void **prev, int success_memorder, int failure_memorder)
-{
-    uint32_t atomic_status;
-    void *temp;
-
-    asm volatile (
-        LD_EX "%[prev_output], [%[ptr_val]]             \n\t" /* ret = *ptr */
-        ST_EX "%" OP_WIDTH "[atomic_var], %[new_val] , [%[ptr_val]] \n\t"  /* *ptr = new */
-        : [atomic_var] "=&r"(atomic_status), [prev_output]"=&r"(temp)     /* output */
-        : [ptr_val] "r"(ptr), [new_val] "r" (new_val)  /* input */
-        :
-    );
-
-    *prev = temp;
-
-    /* Atomic operation success */
-    if (likely(!atomic_status)) {
-        __atomic_thread_fence(success_memorder);
-    } else {
-        /* Atomic operation failure */
-        __atomic_thread_fence(failure_memorder);
-    }
-
-    /* On ARM if an atomic operation succeeds, it returns 0 */
-    return (atomic_status == 0);
-}
 
 static inline void *
 sel4_atomic_exchange(void* ptr, bool_t

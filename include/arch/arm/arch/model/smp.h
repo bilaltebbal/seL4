@@ -23,8 +23,6 @@ static inline cpu_id_t cpuIndexToID(word_t index)
     return BIT(index);
 }
 
-#if 0
-//moved elsewhere
 static inline bool_t
 try_arch_atomic_exchange(void* ptr, void *new_val, void **prev, int success_memorder, int failure_memorder)
 {
@@ -52,7 +50,6 @@ try_arch_atomic_exchange(void* ptr, void *new_val, void **prev, int success_memo
     /* On ARM if an atomic operation succeeds, it returns 0 */
     return (atomic_status == 0);
 }
-#endif
 
 #endif /* ENABLE_SMP_SUPPORT */
 

@@ -17,6 +17,11 @@
 
 #ifdef ENABLE_SMP_SUPPORT
 
+
+#define LD_EX               "ldxr "
+#define ST_EX               "stxr "
+#define OP_WIDTH            "w"
+
 #if 1
 
 static inline CONST cpu_id_t
@@ -24,7 +29,7 @@ getCurrentCPUIndex(void)
 {
     cpu_id_t cpu_id;
     asm volatile ("mrs %[cpu_id], mpidr_el1" : [cpu_id] "=r" (cpu_id) ::);
-    return cpu_id&0x0f;
+    return cpu_id&0x0f; /* Last 8 bits of MPIDR_EL1 register hold affinity information. */
 }
 
 #else

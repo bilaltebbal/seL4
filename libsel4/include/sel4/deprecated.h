@@ -130,9 +130,9 @@ static inline SEL4_DEPRECATED("Badges do not need to be constructed") seL4_Word 
 
 static inline SEL4_DEPRECATED("Use seL4_CNode_CapData_new().words[0]") seL4_Word seL4_CapData_Guard_new(seL4_Word guard, seL4_Word bits)
 {
-    seL4_Word tw = guard<<6;
-    return tw | (bits&0x3f);
-    //return seL4_CNode_CapData_new(guard, bits).words[0];
+    //seL4_Word tw = guard<<6;
+    //return tw | (bits&0x3f);
+    return seL4_CNode_CapData_new(guard, bits).words[0];
 }
 
 #endif // __LIBSEL4_SEL4_DEPRECATED_H
