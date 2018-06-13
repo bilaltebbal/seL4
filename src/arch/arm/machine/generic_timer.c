@@ -19,10 +19,18 @@ BOOT_CODE void initGenericTimer(void)
         /* check the frequency is correct */
         uint32_t gpt_cnt_tval = 0;
         SYSTEM_READ_WORD(CNTFRQ, gpt_cnt_tval);
+
+#ifdef ENABLE_SMP_SUPPORT
+        if (gpt_cnt_tval != 0 && gpt_cnt_tval != TIMER_CLOCK_HZ && getCurrentCPUIndex() == 0) {
+            printf("Warning:  gpt_cnt_tval %u, expected %u\n", gpt_cnt_tval,
+                   (uint32_t) TIMER_CLOCK_HZ);
+        }
+#else
         if (gpt_cnt_tval != 0 && gpt_cnt_tval != TIMER_CLOCK_HZ) {
             printf("Warning:  gpt_cnt_tval %u, expected %u\n", gpt_cnt_tval,
                    (uint32_t) TIMER_CLOCK_HZ);
         }
+#endif
     }
 
     resetTimer();
