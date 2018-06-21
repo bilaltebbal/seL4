@@ -31,3 +31,6 @@ manual/generated
 
 # Emacs backups
 *~
+
+# Vim Swap files
+**.swp

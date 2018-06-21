@@ -97,6 +97,12 @@ handleUnknownSyscall(word_t w)
 #endif
         return EXCEPTION_NONE;
     }
+    if (w == SysDebugProcMap) {
+#ifdef CONFIG_DEBUG_BUILD
+        debug_procMap();
+#endif
+        return EXCEPTION_NONE;
+    }
 #endif
 #ifdef CONFIG_DEBUG_BUILD
     if (w == SysDebugHalt) {

@@ -288,6 +288,8 @@ struct tcb {
      * when CONFIG_DEBUG_BUILD is enabled */
     struct tcb *tcbDebugNext;
     struct tcb *tcbDebugPrev;
+    /* A counter used in the mapping of processes */
+    word_t tcbProcMapCount;
     /* Use any remaining space for a thread name */
     char tcbName[];
 #endif /* CONFIG_DEBUG_BUILD */
