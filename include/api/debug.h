@@ -22,7 +22,6 @@
 
 #include <arch/object/structures_gen.h>
 #include <types.h>
-#include <benchmark/benchmark.h>
 #include <api/failures.h>
 #include <kernel/boot.h>
 #include <kernel/cspace.h>
@@ -33,12 +32,7 @@
 #include <object/untyped.h>
 #include <arch/api/invocation.h>
 #include <linker.h>
-#include <plat/machine/devices.h>
-#include <plat/machine/hardware.h>
 #include <armv/context_switch.h>
-#include <arch/object/iospace.h>
-#include <arch/object/vcpu.h>
-#include <arch/machine/tlb.h>
 
 #include <mode/model/statedata.h>
 #include <mode/machine/hardware.h>
@@ -612,12 +606,15 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
     tcb_t *curr = NULL;
     word_t seen_threads = 0;
     word_t num_executable = 0;
+    word_t usedSpace = 0;
+    UNUSED word_t totalSpace = 0;
+    UNUSED word_t freeSpace = 0;
 
     for (curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
         curr->tcbProcMapCount = 0;
     }
 
-    printf("%20s\t", "Start");
+    printf("\n%20s\t", "Start");
     printf("%20s\t", "Size");
     // printf("%22s\t", "Executable");
     printf("%20s\n", "Thread(s)");
@@ -650,6 +647,7 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
 
         if(seen_threads > 0 && index < 2 * current_index)
         {
+            usedSpace += end_addr - start_addr + 1;
             printf("0x%18lx\t", start_addr);
             printf("0x%18lx\t", end_addr - start_addr + 1);
             // if(num_executable == 0) {
@@ -673,6 +671,30 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
             printf("\n");
         }
     }
+
+    #ifdef CONFIG_ARCH_ARM
+    p_region_t current_region;
+    for(index = 0; index < get_num_avail_p_regs(); ++index)
+    {
+        current_region = get_avail_p_reg(index);
+        totalSpace += current_region.end - current_region.start;
+    }
+    freeSpace = totalSpace - usedSpace;
+    #endif
+
+    printf("SUMMARY:\n");
+    if(totalSpace > 0) {
+        printf("Total Space (Bytes): %lu\n", (long unsigned) totalSpace);
+    } else {
+        printf("Total Space Unknown\n");
+    }
+
+    printf("Used Space (Bytes): %lu\n", (long unsigned) usedSpace);
+    
+    if (totalSpace > 0) {
+        printf("Free Space (Bytes): %lu\n", (long unsigned) freeSpace);
+    }
+
 }
 
 static inline void
