@@ -16,39 +16,43 @@
 
 #include <benchmark/benchmark_track.h>
 #include <arch/api/syscall.h>
-#include <arch/kernel/vspace.h>
 #include <model/statedata.h>
 #include <kernel/thread.h>
-
-#include <arch/object/structures_gen.h>
-#include <types.h>
-#include <api/failures.h>
-#include <kernel/boot.h>
-#include <kernel/cspace.h>
-#include <kernel/stack.h>
-#include <machine/io.h>
-#include <machine/debug.h>
-#include <object/cnode.h>
-#include <object/untyped.h>
-#include <arch/api/invocation.h>
-#include <linker.h>
-#include <armv/context_switch.h>
+#include <kernel/vspace.h>
 
 #include <mode/model/statedata.h>
 #include <mode/machine/hardware.h>
 #include <api/sglib.h>
 
 #ifdef CONFIG_PRINTING
+typedef enum {
+    PERMS_NONE = 0x0,
+    PERMS_X = 0x1,
+    PERMS_W = 0x2,
+    PERMS_WX = 0x3,
+    PERMS_R = 0x4,
+    PERMS_RX = 0x5,
+    PERMS_RW = 0x6,
+    PERMS_RWX = 0x7,
+    PERMS_PageTable = 0x8, 
+    /* Used to separate page tables from pages */
+    SEL4_FORCE_LONG_ENUM(seL4_Page_Permissions),
+} page_permissions_t;
 
-typedef struct proc_map {
+typedef struct proc_map proc_map_t;
+
+struct proc_map {
     paddr_t start;
     paddr_t end;
-    bool_t executable;
+    page_permissions_t permissions;
     tcb_t *thread;
     bool_t entry_valid;
-} proc_map_t;
+    proc_map_t *next;
+    proc_map_t *prev;
+};
 
 #define NUM_REGIONS (1 << 18)
+#define PAGE_TABLE_PERMS 0x8
 
 proc_map_t maps[NUM_REGIONS];
 paddr_t* regions[2* NUM_REGIONS];
@@ -173,7 +177,7 @@ debug_dumpScheduler(void)
 
 static inline exception_t
 insert_proc_map(proc_map_t *map, word_t *current_index, word_t map_size, 
-                paddr_t addr, word_t size, bool_t executable, tcb_t *thread) {
+                paddr_t addr, word_t size, page_permissions_t permissions, tcb_t *thread) {
     exception_t status = EXCEPTION_NONE;
     if (*current_index >= map_size) {
         return EXCEPTION_FAULT;
@@ -183,7 +187,7 @@ insert_proc_map(proc_map_t *map, word_t *current_index, word_t map_size,
 
     current_region.start = addr;
     current_region.end = addr + size - 1;
-    current_region.executable = executable;
+    current_region.permissions = permissions;
     current_region.thread = thread;
     current_region.entry_valid = true;
 
@@ -211,7 +215,7 @@ region_get_proc_map(paddr_t *region_ptr, proc_map_t *map, word_t map_size, proc_
         return EXCEPTION_SYSCALL_ERROR;
     }
     offset -= (word_t) map;
-    offset %= sizeof(proc_map_t); /* modular arithmetic of uint64 doesn't compile on some AARCH 32 systems */
+    offset %= sizeof(proc_map_t);
     *proc_map_ptr = (proc_map_t *) (((word_t) region_ptr) - offset);
     return EXCEPTION_NONE;
 }
@@ -256,6 +260,43 @@ compare_threads(proc_map_t a, proc_map_t b) {
  * currently supported.
  */
 #ifdef CONFIG_ARCH_ARM
+
+static inline page_permissions_t
+permissionsFromAP(word_t AP, bool_t executable)
+{
+    page_permissions_t perms = PERMS_NONE;
+    vm_rights_t current_rights = 0;
+    for (current_rights = 0; current_rights <= 4 && AP != APFromVMRights(current_rights); ++current_rights){};
+    
+    switch (current_rights) {
+    case VMReadWrite:
+        perms |= PERMS_RW;
+        break;
+
+    case VMReadOnly:
+        perms |= PERMS_R;
+        break;
+     
+#ifdef CONFIG_ARCH_AARCH64
+    case VMKernelReadOnly:
+#elif CONFIG_ARCH_AARCH32
+    case VMNoAccess:
+#endif
+    case VMKernelOnly:
+        perms |= PERMS_NONE;
+        break;
+
+    default:
+        fail("Invalid VM rights");
+    }
+
+    if (executable) {
+        perms |= PERMS_X;
+    }
+
+    return perms;
+}
+
 static inline exception_t
 debug_printPT(tcb_t *tcb, pte_t *pt, proc_map_t *map, word_t *current_index, word_t map_size)
 {
@@ -264,7 +305,7 @@ debug_printPT(tcb_t *tcb, pte_t *pt, proc_map_t *map, word_t *current_index, wor
     UNUSED paddr_t frameBase;
     UNUSED word_t frameSize;
     UNUSED word_t count = 0;
-    UNUSED bool_t executable;
+    UNUSED page_permissions_t permissions;
 
 #ifdef CONFIG_ARCH_AARCH64
     for(slot=pt; slot < pt + (paddr_t) BIT(PT_INDEX_BITS); slot += (paddr_t) 1)
@@ -272,8 +313,9 @@ debug_printPT(tcb_t *tcb, pte_t *pt, proc_map_t *map, word_t *current_index, wor
         if (pte_ptr_get_present(slot)) {
             frameBase = pte_ptr_get_page_base_address(slot);
             frameSize = BIT(pageBitsForSize(ARMSmallPage));
+            permissions = permissionsFromAP(pte_ptr_get_AP(slot), !((bool_t) pte_ptr_get_UXN(slot)));
             status = insert_proc_map(map, current_index, map_size, 
-                                     frameBase, frameSize, !((bool_t) pte_ptr_get_UXN(slot)), tcb);
+                                     frameBase, frameSize, permissions, tcb);
 
             if (unlikely(status != EXCEPTION_NONE)) {
                 return status;
@@ -301,18 +343,20 @@ debug_printPT(tcb_t *tcb, pte_t *pt, proc_map_t *map, word_t *current_index, wor
     #else /* if ( ! CONFIG_ARM_HYPERVISOR_SUPPORT ) */
             frameSize = BIT(pageBitsForSize(ARMSmallPage));
     #endif /* CONFIG_ARM_HYPERVISOR_SUPPORT */
-            executable = (pte_pte_small_ptr_get_XN(slot) == 0);
+            permissions = permissionsFromAP(pte_pte_small_ptr_get_AP(slot), 
+                                            pte_pte_small_ptr_get_XN(slot) == 0);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, executable, tcb);
+                                     frameBase, frameSize, permissions, tcb);
         }
     #ifndef CONFIG_ARM_HYPERVISOR_SUPPORT
         else if (pte_ptr_get_pteType(slot) == pte_pte_large)
         {
             frameBase = pte_pte_large_ptr_get_address(slot);
             frameSize = BIT(pageBitsForSize(ARMLargePage));
-            executable = (pte_pte_large_ptr_get_XN(slot) == 0);
+            permissions = permissionsFromAP(pte_pte_large_ptr_get_AP(slot),
+                                            pte_pte_large_ptr_get_XN(slot) == 0);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, executable, tcb);
+                                     frameBase, frameSize, permissions, tcb);
             slot += BIT(pageBitsForSize(ARMLargePage) - pageBitsForSize(ARMSmallPage)) -1;
         }
     #endif /* CONFIG_ARM_HYPERVISOR_SUPPORT */
@@ -333,7 +377,7 @@ debug_printPD(tcb_t *tcb, pde_t *pd, proc_map_t *map, word_t *current_index, wor
     UNUSED pte_t *current_pte;
     UNUSED paddr_t frameBase;
     UNUSED word_t frameSize;
-    UNUSED bool_t executable;
+    UNUSED page_permissions_t permissions;
 
 #ifdef CONFIG_ARCH_AARCH64    
     for(slot=pd; slot < pd + (paddr_t) BIT(PD_INDEX_BITS); slot += (paddr_t) 1)
@@ -343,8 +387,10 @@ debug_printPD(tcb_t *tcb, pde_t *pd, proc_map_t *map, word_t *current_index, wor
         {
             frameBase = pde_pde_large_ptr_get_page_base_address(slot);
             frameSize = BIT(pageBitsForSize(ARMLargePage));
+            permissions = permissionsFromAP(pde_pde_large_ptr_get_AP(slot),
+                                            !((bool_t) pde_pde_large_ptr_get_UXN(slot)));
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, !((bool_t) pde_pde_large_ptr_get_UXN(slot)), tcb);
+                                     frameBase, frameSize, permissions, tcb);
         }
         else if(pde_ptr_get_pde_type(slot) == pde_pde_small \
                 && pde_pde_small_ptr_get_present(slot))
@@ -353,7 +399,7 @@ debug_printPD(tcb_t *tcb, pde_t *pd, proc_map_t *map, word_t *current_index, wor
             frameSize = BIT(seL4_PageTableBits);
             // printf("0x%18lx\t0x%18lx\t%s (PageTable)\n", frameBase, frameBase + frameSize - 1, tcb->tcbName);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, false, tcb);
+                                     frameBase, frameSize, PAGE_TABLE_PERMS, tcb);
             if (unlikely(status != EXCEPTION_NONE)) {
                 return status;
             }
@@ -409,16 +455,17 @@ debug_printPD(tcb_t *tcb, pde_t *pd, proc_map_t *map, word_t *current_index, wor
                 frameSize = BIT(pageBitsForSize(ARMSection));
             }
     #endif /* CONFIG_ARM_HYPERVISOR_SUPPORT */
-            executable = (pde_pde_section_ptr_get_XN(slot) == 0);
+            permissions = permissionsFromAP(pde_pde_section_ptr_get_AP(slot),
+                                            pde_pde_section_ptr_get_XN(slot) == 0);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, executable, tcb);
+                                     frameBase, frameSize, permissions, tcb);
             break;
 
         case pde_pde_coarse:
             frameBase = pde_pde_coarse_ptr_get_address(slot);
             frameSize = BIT(seL4_PageTableBits);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, false, tcb);
+                                     frameBase, frameSize, PAGE_TABLE_PERMS, tcb);
             if (unlikely(status != EXCEPTION_NONE)) {
                 return status;
             }
@@ -445,6 +492,7 @@ debug_printPUD(tcb_t *tcb, pude_t *pude, proc_map_t *map, word_t *current_index,
     UNUSED pde_t *current_pde;
     UNUSED paddr_t frameBase;
     UNUSED word_t frameSize;
+    UNUSED page_permissions_t permissions;
 
     for(slot=pude; slot < pude + (paddr_t) BIT(PUD_INDEX_BITS); slot += (paddr_t) 1)
     {
@@ -454,8 +502,10 @@ debug_printPUD(tcb_t *tcb, pude_t *pude, proc_map_t *map, word_t *current_index,
         {
             frameBase = pude_pude_1g_ptr_get_page_base_address(slot);
             frameSize = BIT(pageBitsForSize(ARMHugePage));
+            permissions = permissionsFromAP(pude_pude_1g_ptr_get_AP(slot),
+                                            pude_pude_1g_ptr_get_UXN(slot) == 0);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, !((bool_t) pude_pude_1g_ptr_get_UXN(slot)), tcb);
+                                     frameBase, frameSize, permissions, tcb);
         }
         else if(pude_ptr_get_pude_type(slot) == pude_pude_pd \
                  && pude_pude_pd_ptr_get_present(slot))
@@ -464,7 +514,7 @@ debug_printPUD(tcb_t *tcb, pude_t *pude, proc_map_t *map, word_t *current_index,
             frameSize = BIT(seL4_PageDirBits);
             // printf("0x%18lx\t0x%18lx\t%s (PD)\n", frameBase, frameBase + frameSize - 1, tcb->tcbName);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, false, tcb);
+                                     frameBase, frameSize, PAGE_TABLE_PERMS, tcb);
             if (unlikely(status != EXCEPTION_NONE)) {
                 return status;
             }
@@ -493,7 +543,7 @@ debug_printPGD(tcb_t *tcb, pgde_t *pgd, proc_map_t *map, word_t *current_index, 
     frameSize = BIT(seL4_PGDBits);
     // printf("0x%18lx\t0x%18lx\t%s (PGD)\n", frameBase, frameBase + frameSize - 1, tcb->tcbName);
     status = insert_proc_map(map, current_index, map_size,
-                             frameBase, frameSize, false, tcb);
+                             frameBase, frameSize, PAGE_TABLE_PERMS, tcb);
     if (unlikely(status != EXCEPTION_NONE)) {
         return status;
     }
@@ -507,7 +557,7 @@ debug_printPGD(tcb_t *tcb, pgde_t *pgd, proc_map_t *map, word_t *current_index, 
             frameSize = BIT(seL4_PUDBits);
             // printf("0x%18lx\t0x%18lx\t%s (PUD)\n", frameBase, frameBase + frameSize - 1, tcb->tcbName);
             status = insert_proc_map(map, current_index, map_size,
-                                     frameBase, frameSize, false, tcb);
+                                     frameBase, frameSize, PAGE_TABLE_PERMS, tcb);
             
             if (unlikely(status != EXCEPTION_NONE)) {
                 return status;
@@ -594,6 +644,33 @@ debug_traverseVSpace(tcb_t *tcb, proc_map_t *map, word_t *current_index, word_t 
 //     }
 // }
 
+static inline char* CONST
+rights_string(page_permissions_t perms) {
+    switch(perms) {
+    case PERMS_NONE:
+        return "---";
+    case PERMS_X:
+        return "--x";
+    case PERMS_W:
+        return "-w-";
+    case PERMS_WX:
+        return "-wx";
+    case PERMS_R:
+        return "r--";
+    case PERMS_RX:
+        return "r-x";
+    case PERMS_RW:
+        return "rw-";
+    case PERMS_RWX:
+        return "rwx";
+    case PERMS_PageTable:
+        return "PageTable";
+    default:
+        fail("Unknown Permissions Type");
+    }
+    return "";
+}
+
 static inline void
 debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
 {
@@ -603,16 +680,12 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
     paddr_t start_addr = 0;
     paddr_t end_addr = 0;
     proc_map_t *a = NULL;
-    tcb_t *curr = NULL;
-    word_t seen_threads = 0;
-    word_t num_executable = 0;
-    word_t usedSpace = 0;
+    proc_map_t *head = NULL;
+    proc_map_t *curr = NULL;
+    UNUSED word_t num_executable = 0;
+    UNUSED word_t usedSpace = 0;
     UNUSED word_t totalSpace = 0;
     UNUSED word_t freeSpace = 0;
-
-    for (curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
-        curr->tcbProcMapCount = 0;
-    }
 
     printf("\n%20s\t", "Start");
     printf("%20s\t", "Size");
@@ -635,9 +708,31 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
                 return;
             }
 
-            a->thread->tcbProcMapCount += region_is_start(region[index], a) ? 1 : -1;
-            seen_threads += region_is_start(region[index], a) ? 1 : -1;
-            num_executable += (region_is_start(region[index], a) ? 1 : -1) * (a->executable ? 1 : 0);
+            if(region_is_start(region[index], a)) {
+                if(a->next != NULL || a->prev != NULL) {
+                    printf("ProcMap Printing Error\n");
+                    return;
+                }
+
+                if(head != NULL) {
+                    head->prev = a;
+                }
+                a->next = head;
+                head = a;
+            } else {
+                if (head == a) {
+                    head = a->next;
+                }
+                if(a->prev != NULL) {
+                    a->prev->next = a->next;
+                }
+                if(a->next != NULL) {
+                    a->next->prev = a->prev;
+                }
+                a->next = NULL;
+                a->prev = NULL;
+            }
+
             index += 1;
         }
 
@@ -645,28 +740,14 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
         status = region_get_proc_map(region[index], map, current_index, &a);
         end_addr = *region[index] + (region_is_start(region[index], a) ? -1 : 0);
 
-        if(seen_threads > 0 && index < 2 * current_index)
+        if( head != NULL && index < 2 * current_index)
         {
             usedSpace += end_addr - start_addr + 1;
             printf("0x%18lx\t", start_addr);
             printf("0x%18lx\t", end_addr - start_addr + 1);
-            // if(num_executable == 0) {
-            //     printf("%20s", "No");
-            // }
-            // else if(num_executable == seen_threads) {
-            //     printf("%20s", "Yes");
-            // }
-            // else {
-            //     printf("%22s", "Error: threads differ");
-            // }
             
-            for (curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
-                if(curr->tcbProcMapCount == 1){
-                    printf("%s; ", curr->tcbName);
-                } 
-                else if(curr->tcbProcMapCount >= 1) {
-                    printf("%s (x%lu); ", curr->tcbName, (long unsigned) curr->tcbProcMapCount);
-                }
+            for (curr = head; curr != NULL; curr = curr->next) {
+                    printf("%s (%s); ", curr->thread->tcbName, rights_string(curr->permissions));
             }
             printf("\n");
         }
@@ -706,13 +787,26 @@ debug_procMap(void)
     word_t current_index = 0;
     word_t size = ARRAY_SIZE(maps);
     tcb_t *curr = NULL;
+    tcb_t *potential_parent = NULL;
+    bool_t curr_is_parent = true;
 
     memzero(maps, sizeof(maps));
     memzero(regions, sizeof(regions));
 
     printf("Dumping all tcb addresses!\n");
     for (curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
-        status = debug_traverseVSpace(curr, maps, &current_index, size);
+        curr_is_parent = true;
+        for (potential_parent = curr->tcbDebugNext; 
+             potential_parent != NULL && curr_is_parent; 
+             potential_parent = potential_parent->tcbDebugNext)
+        {
+            curr_is_parent &= ( tcb_ptr_get_vspace_root_ptr(curr) == NULL \
+                             || tcb_ptr_get_vspace_root_ptr(curr) != tcb_ptr_get_vspace_root_ptr(potential_parent));
+        }
+        if(curr_is_parent)
+        {
+            status = debug_traverseVSpace(curr, maps, &current_index, size);
+        }
     }
 
     if( unlikely((status == EXCEPTION_FAULT) || (current_index * 2 > ARRAY_SIZE(regions))) ) {
@@ -750,7 +844,8 @@ debug_procMap(void)
                     status = region_get_proc_map(regions[working_index - 1], maps, current_index, &b);
                     if( a != NULL && b != NULL && \
                         region_is_start(regions[working_index], a) && \
-                        !region_is_start(regions[working_index - 1], b) )
+                        !region_is_start(regions[working_index - 1], b) &&
+                        b->permissions == a->permissions)
                     {
                         a->entry_valid = false;
                         b->end = a->end;

@@ -39,4 +39,7 @@ void deleteASID(asid_t asid, vspace_root_t *vspace);
 /* Reserved memory ranges */
 static const region_t BOOT_RODATA mode_reserved_region[] = {};
 
+/* AP Translation */
+static word_t CONST APFromVMRights(vm_rights_t vm_rights);
+
 #endif /* __ARCH_MODE_KERNEL_VSPACE_H_ */
