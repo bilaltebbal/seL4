@@ -210,12 +210,21 @@ static inline exception_t
 region_get_proc_map(paddr_t *region_ptr, proc_map_t *map, word_t map_size, proc_map_t **proc_map_ptr)
 {
     word_t offset = (word_t) region_ptr;
+    word_t rem = 0;
     if (offset < (word_t) map || offset >= (word_t) (map + map_size) )
     {
         return EXCEPTION_SYSCALL_ERROR;
     }
-    offset -= (word_t) map;
-    offset %= sizeof(proc_map_t);
+
+    /*
+     * GCC doesn't support modular division for AARCH 32 in some version
+     * Code below is equivalent to:
+     * offset -= map;
+     * offset %= sizeof(proc_map_t);
+     */
+    rem = (offset - (word_t) map) / (word_t) sizeof(proc_map_t);
+    offset -= rem * sizeof(proc_map_t) + (word_t) map  ;
+    
     *proc_map_ptr = (proc_map_t *) (((word_t) region_ptr) - offset);
     return EXCEPTION_NONE;
 }
