@@ -465,7 +465,6 @@ handleSleep(void)
 {
     //sleep duration in MS should be first and only parameter
     int sleeplen = getRegister(NODE_STATE(ksCurThread), capRegister); //capRegister = 0 = R0 = X0 = first arg!!!
-    //printf("RHC sleep for %d milliseconds\n", sleeplen);
 
     if(sleeplen <= 0 || sleeplen > 100000){
         //invalid duration, just return now (but at least move to end of queue and reschedule!)
@@ -473,7 +472,6 @@ handleSleep(void)
         tcbSchedAppend(NODE_STATE(ksCurThread));
         rescheduleRequired();
     }else{
-        //printf("RHC sleep for %d milliseconds\n", sleeplen);
         //dequeue from running, add to sleepers
         setThreadState(NODE_STATE(ksCurThread), ThreadState_Inactive);
         tcbSchedDequeue(NODE_STATE(ksCurThread));

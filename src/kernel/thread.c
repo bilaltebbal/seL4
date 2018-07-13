@@ -523,7 +523,28 @@ scheduleTCB(tcb_t *tptr)
     }
 }
 
-//EACH CPU gets a timer tick!!! Why? I dunno...
+inline void
+sleeperQueueUnlink(tcb_t *prev, tcb_t *current) {
+    if(prev == NULL || current == SleeperQueue) {
+        SleeperQueue = current->tcbSleepNext;
+    }else{
+        prev->tcbSleepNext = current->tcbSleepNext;
+    }
+    current->tcbSleepNext = NULL;
+}
+
+void sleeperQueueTryRemove(tcb_t *target) { 
+    tcb_t *iter = SleeperQueue;
+    tcb_t *prev = NULL;
+    while(iter != NULL) {
+        if(iter == target) {
+            sleeperQueueUnlink(prev, iter);
+            return;
+        }
+        iter = iter->tcbSleepNext;
+    }
+}
+
 void
 timerTick(void)
 {
@@ -533,31 +554,22 @@ timerTick(void)
 #ifdef ENABLE_SMP_SUPPORT
     int tcpu = (int)getCurrentCPUIndex();
 
-    //works as long as more milliseconds than ticks!
-    if(tcpu == 0)timerTickCounter += CONFIG_TIMER_TICK_MS; //because we should be able to count!
+    if(tcpu == 0) timerTickCounter += CONFIG_TIMER_TICK_MS; 
 
-    //printf("RHC - tick on 0x%x - make sure this happens on ALL CPUS!!!\n", tcpu);
     while(next != NULL){
-        if(next->tcbAffinity == tcpu){ //tick down only our cpu.
+        if(next->tcbAffinity == tcpu){ /* tick down only our cpu. */
 #else
-    timerTickCounter += CONFIG_TIMER_TICK_MS; //because we should be able to count!
+    timerTickCounter += CONFIG_TIMER_TICK_MS;
     while(next != NULL){
 #endif
-        //printf("RHC - checking 0x%p - %d\n", next, (int)next->sleepcount);
         next->sleepcount -= CONFIG_TIMER_TICK_MS;
-        if(next->sleepcount <= 0){
-            if(prev == NULL){
-                SleeperQueue = next->tcbSleepNext;
-            }else{
-                prev->tcbSleepNext = next->tcbSleepNext;
-            }
+        if(next->sleepcount <= 0){ 
             temp = next;
+            sleeperQueueUnlink(prev, next);
             next = next->tcbSleepNext;
-            temp->tcbSleepNext = NULL;
-            //printf("RHC - waking 0x%p\n", next);
+
             setThreadState(temp, ThreadState_Running);
             tcbSchedAppend(temp);
-            //DO NOT interrupt a running thread!
             if (!isRunnable(NODE_STATE(ksCurThread))) rescheduleRequired();
             continue;
         }
