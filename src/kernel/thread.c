@@ -523,7 +523,7 @@ scheduleTCB(tcb_t *tptr)
     }
 }
 
-inline void
+static void
 sleeperQueueUnlink(tcb_t *prev, tcb_t *current) {
     if(prev == NULL || current == SleeperQueue) {
         SleeperQueue = current->tcbSleepNext;
