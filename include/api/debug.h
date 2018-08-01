@@ -57,6 +57,14 @@ struct proc_map {
 proc_map_t maps[NUM_REGIONS];
 paddr_t* regions[2* NUM_REGIONS];
 
+static inline int get_num_cores(void) {
+    #ifdef ENABLE_SMP_SUPPORT
+        return CONFIG_MAX_NUM_NODES;
+    #else
+        return 1;
+    #endif
+}
+
 static inline void
 debug_printKernelEntryReason(void)
 {
@@ -163,11 +171,15 @@ debug_printTCB(tcb_t *tcb)
 static inline void
 debug_dumpScheduler(void)
 {
+    int core;
     printf("Dumping all tcbs!\n");
     printf("Name                                    \tState          \tIP                  \t Prio \t Core\n");
     printf("--------------------------------------------------------------------------------------\n");
-    for (tcb_t *curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
-        debug_printTCB(curr);
+    for (core = 0; core < get_num_cores(); core++)
+    {
+        for (tcb_t *curr = NODE_STATE_ON_CORE(ksDebugTCBs, core); curr != NULL; curr = curr->tcbDebugNext) {
+            debug_printTCB(curr);
+        }
     }
 }
 
@@ -698,7 +710,6 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
 
     printf("\n%20s\t", "Start");
     printf("%20s\t", "Size");
-    // printf("%22s\t", "Executable");
     printf("%20s\n", "Thread(s)");
     printf("--------------------------------------------------------------------------\n");
     while(index < 2 * current_index)
@@ -787,6 +798,11 @@ debug_printProcMap(proc_map_t *map, paddr_t **region, word_t current_index)
 
 }
 
+/* 
+ * Note: The proc map has been set up to not print multiple threads in the same VSpace
+ * to save space, but in SMP systems, it will print the oldest thread from each core from
+ * a VSpace because the debug TCB list is core-specific
+ */
 static inline void
 debug_procMap(void)
 {
@@ -796,6 +812,7 @@ debug_procMap(void)
     word_t current_index = 0;
     word_t size = ARRAY_SIZE(maps);
     tcb_t *curr = NULL;
+    int core = 0;
     tcb_t *potential_parent = NULL;
     bool_t curr_is_parent = true;
 
@@ -803,18 +820,21 @@ debug_procMap(void)
     memzero(regions, sizeof(regions));
 
     printf("Dumping all tcb addresses!\n");
-    for (curr = NODE_STATE(ksDebugTCBs); curr != NULL; curr = curr->tcbDebugNext) {
-        curr_is_parent = true;
-        for (potential_parent = curr->tcbDebugNext; 
-             potential_parent != NULL && curr_is_parent; 
-             potential_parent = potential_parent->tcbDebugNext)
-        {
-            curr_is_parent &= ( tcb_ptr_get_vspace_root_ptr(curr) == NULL \
-                             || tcb_ptr_get_vspace_root_ptr(curr) != tcb_ptr_get_vspace_root_ptr(potential_parent));
-        }
-        if(curr_is_parent)
-        {
-            status = debug_traverseVSpace(curr, maps, &current_index, size);
+    for (core = 0; core < get_num_cores() && status == EXCEPTION_NONE; core++)
+    {
+        for (curr = NODE_STATE_ON_CORE(ksDebugTCBs, core); curr != NULL && status == EXCEPTION_NONE; curr = curr->tcbDebugNext) {
+            curr_is_parent = true;
+            for (potential_parent = curr->tcbDebugNext; 
+                potential_parent != NULL && curr_is_parent; 
+                potential_parent = potential_parent->tcbDebugNext)
+            {
+                curr_is_parent &= ( tcb_ptr_get_vspace_root_ptr(curr) == NULL \
+                                || tcb_ptr_get_vspace_root_ptr(curr) != tcb_ptr_get_vspace_root_ptr(potential_parent));
+            }
+            if(curr_is_parent)
+            {
+                status = debug_traverseVSpace(curr, maps, &current_index, size);
+            }
         }
     }
 
