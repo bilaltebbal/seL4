@@ -363,7 +363,7 @@ chooseThread(void)
         dom = 0;
     }
 
-#ifndef CONFIG_ROUND_ROBIN_SCHEDULING /* This is seL4 default and necessary for seL4test */
+#ifndef CONFIG_ROUND_ROBIN_SCHEDULING 
     if (likely(NODE_STATE(ksReadyQueuesL1Bitmap[dom]))) {
         prio = getHighestPrio(dom);
         thread = NODE_STATE(ksReadyQueues)[ready_queues_index(dom, prio)].head;
@@ -374,65 +374,50 @@ chooseThread(void)
         switchToIdleThread();
     }
 
-#else /* This lets threads of lower priority run occasionally */
-        //
-        //Heads up! NODE_STATE() is an over-glorified super-macro created by someone evil!
-        //
-        tcb_queue_t queue;
-        tcb_t *lowest_thread = NULL;
-        int lowest_counter = seL4_MaxPrio;
-        int lowest_prio = seL4_MaxPrio;
-        int i;
+#else 
+    /* This alternative scheduler lets threads of lower priority run occasionally
+     * when higher prio threads aren't blocked.  */
+    tcb_queue_t queue;
+    tcb_t *lowest_thread = NULL;
+    int lowest_counter = seL4_MaxPrio;
+    int lowest_prio = seL4_MaxPrio;
+    int i;
+
 #ifdef ENABLE_SMP_SUPPORT
-        int currCPU = getCurrentCPUIndex();
+    int currCPU = getCurrentCPUIndex();
 #endif /* ENABLE_SMP_SUPPORT */
 
-        //printf("Finding thread to run on core %d\n", currCPU);
-        //loop through priorities looking for something to do!
-        //ONE set of queues, holds all ready threads for all CPUs.
-        for(i=seL4_MaxPrio;i>=0;i--){
-                prio = (word_t)i;
-                queue = NODE_STATE(ksReadyQueues[ready_queues_index(dom, prio)]);
-                if(queue.rr_counter > 0){
-                        queue.rr_counter--;
-                        NODE_STATE(ksReadyQueues[ready_queues_index(dom, prio)]) = queue;
-                }
-                //remember lowest count runnable so we can run that...
-                thread = queue.head;
+    for(i = seL4_MaxPrio; i >= 0; i--) {
+        prio = (word_t)i;
+        queue = NODE_STATE(ksReadyQueues[ready_queues_index(dom, prio)]);
+        if(queue.rr_counter > 0){
+                queue.rr_counter--;
+                NODE_STATE(ksReadyQueues[ready_queues_index(dom, prio)]) = queue;
+        }
+        thread = queue.head;
 #ifdef ENABLE_SMP_SUPPORT
-                if(thread != NULL && thread->tcbAffinity == currCPU){
+        if(thread != NULL && thread->tcbAffinity == currCPU) {
 #else
-                if(thread != NULL){
+        if(thread != NULL) {
 #endif /* ENABLE_SMP_SUPPORT */
-                        if(lowest_thread == NULL){
-                                lowest_thread = thread;
-                                lowest_counter = queue.rr_counter;
-                                lowest_prio = prio;
-                        }else{
-                                if(queue.rr_counter < lowest_counter){
-                                        lowest_thread = thread;
-                                        lowest_counter = queue.rr_counter;
-                                        lowest_prio = prio;
-                                }
-                        }
-                }
+            if(lowest_thread == NULL || queue.rr_counter < lowest_counter) {
+                lowest_thread = thread;
+                lowest_counter = queue.rr_counter;
+                lowest_prio = prio;
+            }
         }
+    }
 
-        if(lowest_thread != NULL){
-                //reset counter on priority that gets run
-                queue = NODE_STATE(ksReadyQueues[ready_queues_index(dom, lowest_prio)]);
-                queue.rr_counter = seL4_MaxPrio - lowest_prio; //smaller counters for higher priorities!
-                queue.rr_counter++; //make it at least 1
-                NODE_STATE(ksReadyQueues[ready_queues_index(dom, lowest_prio)]) = queue;
+    if(lowest_thread != NULL){
+        queue = NODE_STATE(ksReadyQueues[ready_queues_index(dom, lowest_prio)]);
+        queue.rr_counter = 1 + seL4_MaxPrio - lowest_prio;
+        NODE_STATE(ksReadyQueues[ready_queues_index(dom, lowest_prio)]) = queue;
 
-                assert(isRunnable(lowest_thread));
-                switchToThread(lowest_thread);
-                //printf("RHC - switched to thread 0x%p on prio %d\n", lowest_thread, lowest_prio);
-                //printf("RHC - core %d switched to thread 0x%p on prio %d\n", currCPU, lowest_thread, lowest_prio);
-        }else{
-                switchToIdleThread();
-                //printf("Idled!\n");
-        }
+        assert(isRunnable(lowest_thread));
+        switchToThread(lowest_thread);
+    }else{
+        switchToIdleThread();
+    }
 #endif /* CONFIG_PRIORITY_SCHEDULING || CONFIG_ROUND_ROBIN_SCHEDULING */
 }
 

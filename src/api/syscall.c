@@ -463,16 +463,14 @@ handleYield(void)
 static void
 handleSleep(void)
 {
-    //sleep duration in MS should be first and only parameter
-    int sleeplen = getRegister(NODE_STATE(ksCurThread), capRegister); //capRegister = 0 = R0 = X0 = first arg!!!
+    int sleeplen = getRegister(NODE_STATE(ksCurThread), capRegister); 
 
-    if(sleeplen <= 0 || sleeplen > 100000){
-        //invalid duration, just return now (but at least move to end of queue and reschedule!)
+    if(sleeplen <= 0 || sleeplen > 100000){ /* invalid duration */
+        
         tcbSchedDequeue(NODE_STATE(ksCurThread));
         tcbSchedAppend(NODE_STATE(ksCurThread));
         rescheduleRequired();
     }else{
-        //dequeue from running, add to sleepers
         setThreadState(NODE_STATE(ksCurThread), ThreadState_Inactive);
         tcbSchedDequeue(NODE_STATE(ksCurThread));
 
@@ -483,12 +481,11 @@ handleSleep(void)
         rescheduleRequired();
     }
 }
+
 static void
 handleGetTicker(void)
 {
-    //put ticker into MR[0] of current thread
-    uint64_t *buffer = ((uint64_t *) & (((seL4_IPCBuffer *)lookupIPCBuffer(true, NODE_STATE(ksCurThread)))->msg[0]));
-    buffer[0] = timerTickCounter;
+    setRegister(NODE_STATE(ksCurThread), capRegister, timerTickCounter);
     NODE_STATE(ksSchedulerAction) = SchedulerAction_ResumeCurrentThread;
 }
 
