@@ -314,11 +314,8 @@ init_cpu(void)
 BOOT_CODE static void
 init_plat(void)
 {
-    printf("initIRQController\n");
     initIRQController();
-    printf("initL2Cache\n");
     initL2Cache();
-    printf("ini_plat complete\n");
 }
 
 #ifdef ENABLE_SMP_SUPPORT
@@ -378,7 +375,7 @@ static BOOT_CODE bool_t
 try_init_kernel(
     paddr_t ui_p_reg_start,
     paddr_t ui_p_reg_end,
-    sword_t pv_offset,
+    ntsword_t pv_offset,
     vptr_t  v_entry
 ) {
     cap_t root_cnode_cap;
