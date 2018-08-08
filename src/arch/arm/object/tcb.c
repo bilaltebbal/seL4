@@ -45,8 +45,8 @@ void
 Arch_setTCBIPCBuffer(tcb_t *thread, word_t bufferAddr)
 {
 #if defined(CONFIG_IPC_BUF_GLOBALS_FRAME)
-#elif defined(CONFIG_IPC_BUF_TPIDRURW)
-    setRegister(thread, TPIDRURW, bufferAddr);
+#elif defined(CONFIG_IPC_BUF_TPIDRURO)
+    setRegister(thread, TLS_BASE, bufferAddr);
 #elif defined(CONFIG_ARCH_AARCH64)
     /* nothing to do on aarch64 */
 #else

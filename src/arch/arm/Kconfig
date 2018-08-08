@@ -58,7 +58,7 @@ config EXPORT_VCNT_USER
 
 choice
     prompt "IPC Buffer location"
-    default IPC_BUF_TPIDRURW if !ARCH_ARM_V6
+    default IPC_BUF_TPIDRURO if !ARCH_ARM_V6
     default IPC_BUF_GLOBALS_FRAME if ARCH_ARM_V6
     depends on ARCH_AARCH32
     help
@@ -72,12 +72,12 @@ choice
             Put the address of the IPC buffer in a dedicated
             frame that is read only at user level. This works
             on all ARM platforms
-    config IPC_BUF_TPIDRURW
+    config IPC_BUF_TPIDRURO
         bool "ThreadID register"
         depends on !ARCH_ARM_V6
         help
             Put the address of the IPC buffer in the user
-            readable/writeable ThreadID register. When enabled
+            read only ThreadID register. When enabled
             this has the result of the kernel overwriting
             any value the user writes to this register.
 endchoice

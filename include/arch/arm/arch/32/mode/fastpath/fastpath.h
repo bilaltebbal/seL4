@@ -62,7 +62,7 @@ switchToThread_fp(tcb_t *thread, pde_t *cap_pd, pde_t stored_hw_asid)
 
 #if defined(CONFIG_IPC_BUF_GLOBALS_FRAME)
     *armKSGlobalsFrame = thread->tcbIPCBuffer;
-#elif defined(CONFIG_IPC_BUF_TPIDRURW)
+#elif defined(CONFIG_IPC_BUF_TPIDRURO)
 #else
 #error "Unknown IPC buffer strategy"
 #endif
@@ -138,6 +138,7 @@ fastpath_restore(word_t badge, word_t msgInfo, tcb_t *cur_thread)
 
 #ifndef CONFIG_ARCH_ARM_V6
     writeTPIDRURW(getRegister(NODE_STATE(ksCurThread), TPIDRURW));
+    writeTPIDRURO(getRegister(NODE_STATE(ksCurThread), TLS_BASE));
 #endif
 
 #ifdef CONFIG_HAVE_FPU

@@ -22,7 +22,7 @@ Arch_switchToThread(tcb_t *tcb)
     setVMRoot(tcb);
 #if defined(CONFIG_IPC_BUF_GLOBALS_FRAME)
     *armKSGlobalsFrame = tcb->tcbIPCBuffer;
-#elif defined(CONFIG_IPC_BUF_TPIDRURW)
+#elif defined(CONFIG_IPC_BUF_TPIDRURO)
 #else
 #error "Unknown IPC buffer strategy"
 #endif

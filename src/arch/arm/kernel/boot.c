@@ -426,32 +426,23 @@ try_init_kernel(
     init_plat();
 
     /* make the free memory available to alloc_region() */
-    printf("init_freemem...\n");
-    //printf(" phys in = %p, %p\n", (void *)ui_p_reg_start, (void *)ui_p_reg_end);
-    //printf(" reg = %p, %p\n", (void *)ui_reg.start, (void *)ui_reg.end);
     init_freemem(ui_reg);
-    printf(" ...freemem initialized\n");
 
     /* create the root cnode */
     root_cnode_cap = create_root_cnode();
-    printf("created root cnode\n");
     if (cap_get_capType(root_cnode_cap) == cap_null_cap) {
-    	printf("create root cnode ERROR\n");
         return false;
     }
 
     /* create the cap for managing thread domains */
     create_domain_cap(root_cnode_cap);
-    printf("created domain cap\n");
 
     /* create the IRQ CNode */
     if (!create_irq_cnode()) {
-    	printf("creat irq cnode ERROR\n");
         return false;
     }
 
     /* initialise the IRQ states and provide the IRQ control cap */
-    printf("init_irqs\n");
     init_irqs(root_cnode_cap);
 
     /* create the bootinfo frame */
@@ -517,7 +508,6 @@ try_init_kernel(
         return false;
     }
 
-    printf("create_initial_thread\n");
     /* Before creating the initial thread (which also switches to it)
      * we clean the cache so that any page table information written
      * as a result of calling create_frames_of_region will be correctly
@@ -571,7 +561,6 @@ try_init_kernel(
     /* initialize BKL before booting up other cores */
     SMP_COND_STATEMENT(clh_lock_init());
 
-    printf("release other cpus\n");
     SMP_COND_STATEMENT(release_secondary_cpus());
 
     /* grab BKL before leaving the kernel */
