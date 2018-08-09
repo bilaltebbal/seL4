@@ -375,7 +375,7 @@ static BOOT_CODE bool_t
 try_init_kernel(
     paddr_t ui_p_reg_start,
     paddr_t ui_p_reg_end,
-    ntsword_t pv_offset,
+    sword_t pv_offset,
     vptr_t  v_entry
 ) {
     cap_t root_cnode_cap;
