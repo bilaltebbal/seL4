@@ -45,6 +45,8 @@
 #include <linker.h>
 #include <plat/machine/hardware.h>
 #include <machine.h>
+#include <plat/machine/timer.h>
+#include <arch/machine/timer.h>
 #include <machine/timer.h>
 #include <arch/machine/fpu.h>
 #include <arch/machine/tlb.h>
